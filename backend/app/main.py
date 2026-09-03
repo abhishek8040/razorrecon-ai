@@ -7,6 +7,7 @@ import uuid
 import pandas as pd
 import io
 import os
+from decimal import Decimal
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
@@ -120,7 +121,6 @@ def investigate_exception(exception_id: str, session: Session = Depends(get_sess
         
     p = session.exec(select(Payment).where(Payment.id == res.source_record_id)).first()
     
-    # get candidates (fix for missing settlements)
     settlements = session.exec(select(Settlement).where(Settlement.merchant_id == p.merchant_id)).all()
     
     # Filter by time proximity and sort by amount difference
@@ -133,9 +133,38 @@ def investigate_exception(exception_id: str, session: Session = Depends(get_sess
     valid_candidates.sort(key=lambda s: abs(s.settlement_amount - p.amount))
     candidates = valid_candidates[:5]
     
+    # Bank Candidates
+    bank_txs = session.exec(select(BankTransaction).where(BankTransaction.merchant_id == p.merchant_id)).all()
+    valid_bank_candidates = []
+    for b in bank_txs:
+        time_diff = abs((b.transaction_time - p.payment_time).total_seconds())
+        if time_diff <= MAX_TIME_WINDOW_DAYS * 86400 * 2: # Give bank extra time
+            valid_bank_candidates.append(b)
+            
+    valid_bank_candidates.sort(key=lambda b: abs(b.amount - p.amount))
+    bank_candidates = valid_bank_candidates[:5]
+    
     investigator = AIInvestigator()
     try:
-        ai_decision = investigator.investigate_exception(p, candidates)
+        ai_decision = investigator.investigate_exception(p, candidates, bank_candidates)
+        
+        # Deterministic Policy Checks
+        policy_overridden = False
+        policy_reason = ""
+        if ai_decision.get("decision") == "MATCH":
+            confidence = ai_decision.get("confidence", 0.0)
+            if confidence < 0.95:
+                policy_overridden = True
+                policy_reason = f"AI confidence ({confidence}) is below the strict 0.95 threshold for auto-resolution."
+            elif len(candidates) > 1 and abs(candidates[0].settlement_amount - p.amount) > p.amount * Decimal("0.1"):
+                policy_overridden = True
+                policy_reason = "Multiple candidates exist and amount difference exceeds 10% safety margin."
+                
+        if policy_overridden:
+            ai_decision["decision"] = "REVIEW"
+            ai_decision["explanation"] += f"\n\n[POLICY ENGINE OVERRIDE]: {policy_reason}"
+            ai_decision["recommended_action"] = "Human review mandated by safety policy."
+            
     except Exception as e:
         ai_decision = {
             "decision": "REVIEW",

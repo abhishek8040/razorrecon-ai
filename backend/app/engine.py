@@ -70,8 +70,8 @@ class ReconciliationEngine:
         # Finalize run
         run.status = "COMPLETED"
         run.processing_time_ms = int((time.time() - start_time) * 1000)
-        run.auto_matched = self.session.exec(select(ReconciliationResult).where(ReconciliationResult.run_id == self.run_id, ReconciliationResult.decision_source == "DETERMINISTIC", ReconciliationResult.result_type.in_(["MATCHED_EXACT", "MATCHED_AFTER_FEE_ADJUSTMENT"]))).all().__len__()
-        run.unresolved = self.session.exec(select(ReconciliationResult).where(ReconciliationResult.run_id == self.run_id, ReconciliationResult.result_type == "UNRESOLVED")).all().__len__()
+        run.auto_matched = self.session.exec(select(ReconciliationResult).where(ReconciliationResult.run_id == self.run_id, ReconciliationResult.decision_source == "DETERMINISTIC", ReconciliationResult.result_type.in_(["MATCHED_3_WAY"]))).all().__len__()
+        run.unresolved = self.session.exec(select(ReconciliationResult).where(ReconciliationResult.run_id == self.run_id, ReconciliationResult.result_type.in_(["UNRESOLVED", "MATCHED_2_WAY"]))).all().__len__()
         run.escalated = self.session.exec(select(ExceptionRecord).where(ExceptionRecord.run_id == self.run_id)).all().__len__()
         self.session.add(run)
         self.session.commit()
@@ -95,34 +95,63 @@ class ReconciliationEngine:
                     b_match = None
                     for b_id, b in unmatched_bank_txs.items():
                         if b_id in matched_bank_tx_ids: continue
-                        if b.bank_reference == s.id and b.amount == s.settlement_amount:
+                        if b.bank_reference == s.reference and b.amount == s.settlement_amount:
                             b_match = b
                             break
                             
-                    explanation = "Exact match on reference and amount (2-way)."
                     if b_match:
                         explanation = "Exact 3-way match on reference and amount."
                         matched_bank_tx_ids.append(b_match.id)
                         
-                    result = ReconciliationResult(
-                        id=f"res_{uuid.uuid4().hex[:12]}",
-                        run_id=self.run_id,
-                        source_record_type="PAYMENT",
-                        source_record_id=p.id,
-                        matched_record_id=s.id,
-                        result_type="MATCHED_EXACT",
-                        confidence=1.0,
-                        amount_difference=Decimal("0.0"),
-                        decision_source="DETERMINISTIC",
-                        time_difference_seconds=time_diff,
-                        explanation=explanation
-                    )
-                    self.session.add(result)
+                        result = ReconciliationResult(
+                            id=f"res_{uuid.uuid4().hex[:12]}",
+                            run_id=self.run_id,
+                            source_record_type="PAYMENT",
+                            source_record_id=p.id,
+                            matched_record_id=s.id,
+                            bank_transaction_id=b_match.id,
+                            result_type="MATCHED_3_WAY",
+                            confidence=1.0,
+                            amount_difference=Decimal("0.0"),
+                            decision_source="DETERMINISTIC",
+                            time_difference_seconds=time_diff,
+                            explanation=explanation
+                        )
+                        self.session.add(result)
+                        self._log_audit("MATCH_EXACT_3_WAY", "Payment", p.id, "SYSTEM", decision="MATCH", reason=explanation)
+                    else:
+                        explanation = "Payment and settlement match, but missing bank transaction."
+                        result = ReconciliationResult(
+                            id=f"res_{uuid.uuid4().hex[:12]}",
+                            run_id=self.run_id,
+                            source_record_type="PAYMENT",
+                            source_record_id=p.id,
+                            matched_record_id=s.id,
+                            bank_transaction_id=None,
+                            result_type="MATCHED_2_WAY",
+                            confidence=0.8,
+                            amount_difference=Decimal("0.0"),
+                            decision_source="DETERMINISTIC",
+                            time_difference_seconds=time_diff,
+                            explanation=explanation
+                        )
+                        self.session.add(result)
+                        
+                        exc = ExceptionRecord(
+                            id=f"exc_{uuid.uuid4().hex[:12]}",
+                            run_id=self.run_id,
+                            result_id=result.id,
+                            exception_type="MISSING_BANK_TRANSACTION",
+                            severity="HIGH",
+                            description=explanation,
+                            status="OPEN"
+                        )
+                        self.session.add(exc)
+                        self._log_audit("ESCALATE_MISSING_BANK", "Payment", p.id, "SYSTEM", decision="ESCALATE", reason=explanation)
                     
                     matched_payment_ids.append(p.id)
                     matched_settlement_ids.append(s.id)
                     
-                    self._log_audit("MATCH_EXACT", "Payment", p.id, "SYSTEM", decision="MATCH", reason=explanation)
                     break
                     
         for pid in matched_payment_ids:
@@ -151,25 +180,64 @@ class ReconciliationEngine:
                     time_diff = abs((s.settlement_time - p.payment_time).total_seconds())
                     
                     if pct_diff <= MAX_AMOUNT_TOLERANCE_PERCENT:
-                        explanation = "Fee adjustment within 2% tolerance."
-                        result = ReconciliationResult(
-                            id=f"res_{uuid.uuid4().hex[:12]}",
-                            run_id=self.run_id,
-                            source_record_type="PAYMENT",
-                            source_record_id=p.id,
-                            matched_record_id=s.id,
-                            result_type="MATCHED_AFTER_FEE_ADJUSTMENT",
-                            confidence=0.95,
-                            amount_difference=diff,
-                            decision_source="DETERMINISTIC",
-                            reason_codes_json=json.dumps(["FEE_MISMATCH"]),
-                            time_difference_seconds=time_diff,
-                            explanation=explanation
-                        )
-                        self.session.add(result)
+                        # Check if bank leg exists for this settlement
+                        b_match = None
+                        for b_id, b in unmatched_bank_txs.items():
+                            if b.bank_reference == s.id and b.amount == s.settlement_amount:
+                                b_match = b
+                                break
+                        
+                        if b_match:
+                            explanation = "Fee adjustment within 2% tolerance and bank match found."
+                            result = ReconciliationResult(
+                                id=f"res_{uuid.uuid4().hex[:12]}",
+                                run_id=self.run_id,
+                                source_record_type="PAYMENT",
+                                source_record_id=p.id,
+                                matched_record_id=s.id,
+                                bank_transaction_id=b_match.id,
+                                result_type="MATCHED_3_WAY",
+                                confidence=0.95,
+                                amount_difference=diff,
+                                decision_source="DETERMINISTIC",
+                                reason_codes_json=json.dumps(["FEE_MISMATCH"]),
+                                time_difference_seconds=time_diff,
+                                explanation=explanation
+                            )
+                            self.session.add(result)
+                            unmatched_bank_txs.pop(b_match.id, None)
+                            self._log_audit("MATCH_FEE_ADJUSTMENT_3_WAY", "Payment", p.id, "SYSTEM", decision="MATCH", reason=explanation)
+                        else:
+                            explanation = "Fee adjustment within 2% tolerance, but missing bank transaction."
+                            result = ReconciliationResult(
+                                id=f"res_{uuid.uuid4().hex[:12]}",
+                                run_id=self.run_id,
+                                source_record_type="PAYMENT",
+                                source_record_id=p.id,
+                                matched_record_id=s.id,
+                                result_type="MATCHED_2_WAY",
+                                confidence=0.8,
+                                amount_difference=diff,
+                                decision_source="DETERMINISTIC",
+                                reason_codes_json=json.dumps(["FEE_MISMATCH"]),
+                                time_difference_seconds=time_diff,
+                                explanation=explanation
+                            )
+                            self.session.add(result)
+                            exc = ExceptionRecord(
+                                id=f"exc_{uuid.uuid4().hex[:12]}",
+                                run_id=self.run_id,
+                                result_id=result.id,
+                                exception_type="MISSING_BANK_TRANSACTION",
+                                severity="HIGH",
+                                description=explanation,
+                                status="OPEN"
+                            )
+                            self.session.add(exc)
+                            self._log_audit("ESCALATE_MISSING_BANK", "Payment", p.id, "SYSTEM", decision="ESCALATE", reason=explanation)
+
                         resolved = True
                         unmatched_settlements.pop(s.id, None)
-                        self._log_audit("MATCH_FEE_ADJUSTMENT", "Payment", p.id, "SYSTEM", decision="MATCH", reason=explanation)
                         break
             
             if not resolved:

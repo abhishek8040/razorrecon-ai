@@ -201,8 +201,21 @@ export default function ExceptionsPage() {
                         </div>
                       )}
                       <div className="bg-blue-50 p-3 rounded-lg border border-blue-100">
-                        <p className="text-sm text-blue-900">{selectedExc.ai_analysis}</p>
+                        <p className="text-sm text-blue-900 whitespace-pre-wrap">
+                          {selectedExc.ai_analysis?.split('\n\n[POLICY ENGINE OVERRIDE]: ')[0]}
+                        </p>
                       </div>
+                      {selectedExc.ai_analysis?.includes('[POLICY ENGINE OVERRIDE]: ') && (
+                        <div className="bg-red-50 p-3 rounded-lg border border-red-200">
+                           <div className="flex items-center gap-2 mb-1">
+                             <Shield className="h-4 w-4 text-red-600" />
+                             <h4 className="font-semibold text-red-900 text-xs uppercase">Policy Engine Override</h4>
+                           </div>
+                           <p className="text-sm text-red-800">
+                             {selectedExc.ai_analysis?.split('\n\n[POLICY ENGINE OVERRIDE]: ')[1]}
+                           </p>
+                        </div>
+                      )}
                       {selectedExc.recommended_action && (
                         <div className="bg-emerald-50 p-3 rounded-lg border border-emerald-100">
                           <p className="text-xs font-semibold text-emerald-700 mb-1">Recommended Action</p>

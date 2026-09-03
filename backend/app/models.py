@@ -73,7 +73,8 @@ class ReconciliationResult(SQLModel, table=True):
     source_record_type: str # 'PAYMENT', 'SETTLEMENT', 'BANK_TRANSACTION'
     source_record_id: str
     matched_record_id: Optional[str] = None
-    result_type: str # 'MATCHED_EXACT', 'MATCHED_AFTER_FEE_ADJUSTMENT', 'AMBIGUOUS', 'UNRESOLVED', etc.
+    bank_transaction_id: Optional[str] = None
+    result_type: str # 'MATCHED_3_WAY', 'MATCHED_2_WAY', 'MATCHED_AFTER_FEE_ADJUSTMENT', 'AMBIGUOUS', 'UNRESOLVED', etc.
     confidence: float
     amount_difference: Decimal = Decimal("0.0")
     time_difference_seconds: Optional[int] = None
@@ -129,4 +130,7 @@ class EvaluationRun(SQLModel, table=True):
     recall: float
     accuracy: float
     auto_resolution_precision: Optional[float] = None
+    three_way_match_rate: Optional[float] = None
+    unresolved_rate: Optional[float] = None
+    throughput_records_per_second: Optional[float] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)

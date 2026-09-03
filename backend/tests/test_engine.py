@@ -6,6 +6,7 @@ import uuid
 
 from app.engine import ReconciliationEngine
 from app.models import Payment, Settlement, BankTransaction, ReconciliationResult, ExceptionRecord
+from sqlmodel import select
 
 def test_engine_exact_match(session: Session):
     # Setup 3-way exact match
@@ -17,15 +18,15 @@ def test_engine_exact_match(session: Session):
     
     session.add(Payment(id=p_id, external_id=p_id, merchant_id="m1", amount=Decimal("100.0"), payment_time=now, status="captured"))
     session.add(Settlement(id=s_id, external_id=s_id, merchant_id="m1", settlement_amount=Decimal("100.0"), settlement_time=now + timedelta(days=1), reference=p_id, status="processed"))
-    session.add(BankTransaction(id=b_id, external_id=b_id, merchant_id="m1", amount=Decimal("100.0"), transaction_time=now + timedelta(days=1, hours=2), bank_reference=s_id, type="CREDIT"))
+    session.add(BankTransaction(id=b_id, external_id=b_id, merchant_id="m1", amount=Decimal("100.0"), transaction_time=now + timedelta(days=1, hours=2), bank_reference=p_id, type="CREDIT"))
     session.commit()
     
     engine = ReconciliationEngine(session, "run_1")
     engine.run()
     
-    res = session.query(ReconciliationResult).filter(ReconciliationResult.source_record_id == p_id).first()
+    res = session.exec(select(ReconciliationResult).where(ReconciliationResult.source_record_id == p_id)).first()
     assert res is not None
-    assert res.result_type == "MATCHED_EXACT"
+    assert res.result_type == "MATCHED_3_WAY"
     assert res.decision_source == "DETERMINISTIC"
     assert res.explanation == "Exact 3-way match on reference and amount."
 
@@ -42,9 +43,13 @@ def test_engine_fee_adjustment(session: Session):
     engine = ReconciliationEngine(session, "run_2")
     engine.run()
     
-    res = session.query(ReconciliationResult).filter(ReconciliationResult.source_record_id == p_id).first()
+    res = session.exec(select(ReconciliationResult).where(ReconciliationResult.source_record_id == p_id)).first()
     assert res is not None
-    assert res.result_type == "MATCHED_AFTER_FEE_ADJUSTMENT"
+    assert res.result_type == "MATCHED_2_WAY"
+    
+    exc = session.exec(select(ExceptionRecord).where(ExceptionRecord.result_id == res.id)).first()
+    assert exc is not None
+    assert exc.exception_type == "MISSING_BANK_TRANSACTION"
     
 def test_engine_idempotency(session: Session):
     p_id = "pay_3"
@@ -61,7 +66,7 @@ def test_engine_idempotency(session: Session):
     engine2 = ReconciliationEngine(session, "run_4")
     engine2.run()
     
-    results = session.query(ReconciliationResult).filter(ReconciliationResult.source_record_id == p_id).all()
+    results = session.exec(select(ReconciliationResult).where(ReconciliationResult.source_record_id == p_id)).all()
     # Should only have 1 result despite two runs
     assert len(results) == 1
     assert results[0].run_id == "run_4"
@@ -75,8 +80,8 @@ def test_engine_missing_settlement(session: Session):
     engine = ReconciliationEngine(session, "run_5")
     engine.run()
     
-    res = session.query(ReconciliationResult).filter(ReconciliationResult.source_record_id == p_id).first()
+    res = session.exec(select(ReconciliationResult).where(ReconciliationResult.source_record_id == p_id)).first()
     assert res.result_type == "UNRESOLVED"
     
-    exc = session.query(ExceptionRecord).filter(ExceptionRecord.result_id == res.id).first()
+    exc = session.exec(select(ExceptionRecord).where(ExceptionRecord.result_id == res.id)).first()
     assert exc.exception_type == "MISSING_SETTLEMENT"

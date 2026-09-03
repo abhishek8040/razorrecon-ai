@@ -131,7 +131,10 @@ export default function TransactionsPage() {
                   <Detail label="Confidence" value={`${(selected.reconciliation.confidence * 100).toFixed(0)}%`} />
                   <Detail label="Decision" value={selected.reconciliation.decision_source} />
                   {selected.reconciliation.matched_record_id && (
-                    <Detail label="Matched To" value={selected.reconciliation.matched_record_id} />
+                    <Detail label="Matched Settlement" value={selected.reconciliation.matched_record_id} />
+                  )}
+                  {selected.reconciliation.bank_transaction_id && (
+                    <Detail label="Matched Bank Tx" value={selected.reconciliation.bank_transaction_id} />
                   )}
                   {selected.reconciliation.amount_difference !== null && selected.reconciliation.amount_difference !== undefined && Number(selected.reconciliation.amount_difference) !== 0 && (
                     <Detail label="Amt Diff" value={`₹${Number(selected.reconciliation.amount_difference).toFixed(2)}`} />

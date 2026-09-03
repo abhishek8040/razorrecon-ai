@@ -4,7 +4,7 @@ from decimal import Decimal
 from typing import List, Dict, Any
 
 class MockAIProvider:
-    def investigate(self, payment, candidates) -> dict:
+    def investigate(self, payment, candidates, bank_candidates) -> dict:
         """ Returns a mock structured AI decision """
         # Very simple deterministic fallback logic pretending to be AI
         best_candidate = candidates[0] if candidates else None
@@ -41,7 +41,7 @@ class LLMProvider:
         self.provider_name = provider_name
         self.api_key = api_key
         
-    def investigate(self, payment, candidates) -> dict:
+    def investigate(self, payment, candidates, bank_candidates) -> dict:
         import google.genai as genai
         from google.genai import types
         from pydantic import BaseModel, Field
@@ -70,6 +70,10 @@ class LLMProvider:
         for i, s in enumerate(candidates):
             prompt += f"\n[{i+1}] ID: {s.id}, Amount: {s.settlement_amount}, Time: {s.settlement_time}, Ref: {s.reference}"
             
+        prompt += "\n\nCandidate Bank Transactions:"
+        for i, b in enumerate(bank_candidates):
+            prompt += f"\n[{i+1}] ID: {b.id}, Amount: {b.amount}, Time: {b.transaction_time}, Ref: {b.bank_reference}"
+            
         prompt += "\n\nAnalyze the data and return a JSON object with your decision and reasoning."
 
         response = client.models.generate_content(
@@ -97,8 +101,8 @@ class AIInvestigator:
     def __init__(self):
         self.provider = get_ai_provider()
         
-    def investigate_exception(self, payment, candidates) -> dict:
-        return self.provider.investigate(payment, candidates)
+    def investigate_exception(self, payment, candidates, bank_candidates) -> dict:
+        return self.provider.investigate(payment, candidates, bank_candidates)
 
 class FinancialAssistant:
     def __init__(self):
