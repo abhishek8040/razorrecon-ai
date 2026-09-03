@@ -1,0 +1,5 @@
+id,external_id,merchant_id,settlement_amount,settlement_time,reference,status,metadata_json
+setl_custom_2001,setl_custom_2001,merch_custom,5000.00,2026-09-02T10:00:00,pay_custom_1001,processed,{}
+setl_custom_2002,setl_custom_2002,merch_custom,2450.00,2026-09-02T11:30:00,pay_custom_1002,processed,{"note":"2% fee deducted"}
+setl_custom_2003,setl_custom_2003,merch_custom,10000.00,2026-09-02T14:45:00,pay_custom_1003,processed,{}
+setl_custom_2005,setl_custom_2005,merch_custom,12000.00,2026-09-03T16:20:00,pay_custom_1005,processed,{}

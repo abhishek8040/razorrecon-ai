@@ -1,0 +1,4 @@
+id,external_id,merchant_id,amount,transaction_time,bank_reference,description,type,metadata_json
+btxn_2_3001,btxn_2_3001,merch_batch2,150.00,2026-09-07T14:00:00,pay_2_1001,Settlement,CREDIT,{}
+btxn_2_3002,btxn_2_3002,merch_batch2,250.00,2026-09-07T15:00:00,pay_2_1002,Settlement,CREDIT,{}
+btxn_2_3003,btxn_2_3003,merch_batch2,350.00,2026-09-07T16:00:00,pay_2_1003,Settlement,CREDIT,{}
