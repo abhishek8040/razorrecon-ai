@@ -149,49 +149,25 @@ def investigate_exception(exception_id: str, session: Session = Depends(get_sess
     investigator = AIInvestigator()
     try:
         ai_decision = investigator.investigate_exception(p, candidates, bank_candidates)
+        matched_s_id = ai_decision.get("matched_settlement_id")
+        matched_s = next((s for s in candidates if s.id == matched_s_id), None) if matched_s_id else None
         
-        # Deterministic Policy Checks
-        policy_overridden = False
-        policy_reason = ""
-        passed_checks = []
-        failed_checks = []
-        blocking_checks = []
+        matched_b_id = ai_decision.get("matched_bank_transaction_id")
+        matched_b = next((b for b in bank_candidates if b.id == matched_b_id), None) if matched_b_id else None
         
-        if ai_decision.get("decision") == "MATCH":
-            confidence = ai_decision.get("confidence", 0.0)
-            if confidence < PolicyEngine.MIN_AUTO_RESOLUTION_CONFIDENCE:
-                policy_overridden = True
-                policy_reason = f"AI confidence ({confidence}) is below the strict {PolicyEngine.MIN_AUTO_RESOLUTION_CONFIDENCE} threshold for auto-resolution."
-                blocking_checks.append(policy_reason)
-            else:
-                # Use policy engine to evaluate the matched candidate
-                matched_s_id = ai_decision.get("matched_settlement_id")
-                matched_s = next((s for s in candidates if s.id == matched_s_id), None) if matched_s_id else None
-                
-                matched_b_id = ai_decision.get("matched_bank_transaction_id")
-                matched_b = next((b for b in bank_candidates if b.id == matched_b_id), None) if matched_b_id else None
-                
-                if matched_s:
-                    passed, failed, blocking, dec = PolicyEngine.evaluate_match(p, matched_s, matched_b)
-                    passed_checks = passed
-                    failed_checks = failed
-                    blocking_checks = blocking
-                    if len(blocking) > 0:
-                        policy_overridden = True
-                        policy_reason = "Policy Blockers: " + ", ".join(blocking)
-                else:
-                    policy_overridden = True
-                    policy_reason = "AI suggested a MATCH but did not provide a valid matched_settlement_id."
-                    blocking_checks.append(policy_reason)
-
+        passed, failed, blocking, dec = PolicyEngine.evaluate_ai_decision(ai_decision, p, matched_s, matched_b)
+        
+        policy_overridden = len(blocking) > 0
+        policy_reason = " ".join(blocking) if policy_overridden else ""
+        
         if policy_overridden:
             ai_decision["decision"] = "REVIEW"
-            ai_decision["explanation"] += f"\\n\\n[POLICY OVERRIDE] {policy_reason}"
+            ai_decision["explanation"] = ai_decision.get("explanation", "") + f"\n\n[POLICY OVERRIDE] {policy_reason}"
             ai_decision["recommended_action"] = "Manual human review required"
             
-        ai_decision["passed_checks"] = passed_checks
-        ai_decision["failed_checks"] = failed_checks
-        ai_decision["blocking_checks"] = blocking_checks
+        ai_decision["passed_checks"] = passed
+        ai_decision["failed_checks"] = failed
+        ai_decision["blocking_checks"] = blocking
 
         res.metadata_json = json.dumps({"ai_investigation": ai_decision})
         session.add(res)

@@ -36,6 +36,7 @@ def test_ai_investigate_fallback(client: TestClient, session: Session):
     
     # We don't have a real Gemini key configured in test env, so it will fail and trigger fallback
     response = client.post(f"/api/exceptions/{exc.id}/investigate")
+    print(response.json())
     assert response.status_code == 200
     data = response.json()
     assert data["investigation"]["decision"] == "REVIEW"

@@ -72,3 +72,34 @@ class PolicyEngine:
             return passed, failed, blocking, "MATCH_3_WAY"
         else:
             return passed, failed, blocking, "MATCH_2_WAY"
+
+    @classmethod
+    def evaluate_ai_decision(cls, ai_decision: dict, payment: Payment, settlement: Settlement = None, bank_tx: BankTransaction = None) -> Tuple[List[str], List[str], List[str], str]:
+        """
+        Evaluates an AI investigation decision against strict deterministic policies.
+        """
+        passed = []
+        failed = []
+        blocking = []
+        
+        if ai_decision.get("decision") != "MATCH":
+            passed.append(f"AI recommended {ai_decision.get('decision')} without matching.")
+            return passed, failed, blocking, ai_decision.get("decision", "REVIEW")
+            
+        confidence = ai_decision.get("confidence", 0.0)
+        if confidence < cls.MIN_AUTO_RESOLUTION_CONFIDENCE:
+            blocking.append(f"AI confidence ({confidence}) is below the strict {cls.MIN_AUTO_RESOLUTION_CONFIDENCE} threshold for auto-resolution.")
+        else:
+            passed.append(f"AI confidence ({confidence}) meets the required {cls.MIN_AUTO_RESOLUTION_CONFIDENCE} threshold.")
+            
+        # Run standard deterministic checks on the candidate
+        match_passed, match_failed, match_blocking, decision = cls.evaluate_match(payment, settlement, bank_tx)
+        
+        passed.extend(match_passed)
+        failed.extend(match_failed)
+        blocking.extend(match_blocking)
+        
+        if len(blocking) > 0:
+            return passed, failed, blocking, "ESCALATE"
+            
+        return passed, failed, blocking, decision

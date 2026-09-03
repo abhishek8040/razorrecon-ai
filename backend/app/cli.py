@@ -9,6 +9,7 @@ import argparse
 random.seed(42) # Deterministic generation
 
 def generate_data(num_records=1000, is_demo=True):
+    import uuid
     dataset_type = "demo" if is_demo else "heldout"
     output_dir = f"../data/{dataset_type}"
     os.makedirs(output_dir, exist_ok=True)
@@ -17,11 +18,12 @@ def generate_data(num_records=1000, is_demo=True):
     settlements = []
     bank_transactions = []
     
-    merchant_id = f"merch_{uuid.uuid4().hex[:8]}"
+    merchant_id = f"merch_001"
     start_date = datetime(2026, 1, 1)
     
     for i in range(num_records):
-        payment_id = f"pay_{uuid.uuid4().hex[:12]}"
+        idx = f"{i:04d}"
+        payment_id = f"pay_{dataset_type}_{idx}"
         amount = Decimal(str(round(random.uniform(100.0, 50000.0), 2)))
         payment_time = start_date + timedelta(days=random.randint(0, 30), hours=random.randint(0, 23), minutes=random.randint(0, 59))
         
@@ -39,17 +41,18 @@ def generate_data(num_records=1000, is_demo=True):
         })
         
         anomaly = random.random()
-        # 60% exact match
+        # 55% exact match
         # 10% amount discrepancy
         # 8% missing settlement
         # 6% duplicate
         # 5% fee/tax mismatch (amount reduced by 2%)
         # 4% reference mismatch
         # 3% delayed settlement
-        # 4% other
+        # 5% MISSING_BANK_TRANSACTION
+        # 4% AMBIGUOUS_BANK_MATCH
         
-        settlement_id = f"setl_{uuid.uuid4().hex[:12]}"
-        bank_txn_id = f"btxn_{uuid.uuid4().hex[:12]}"
+        settlement_id = f"setl_{dataset_type}_{idx}"
+        bank_txn_id = f"btxn_{dataset_type}_{idx}"
         
         setl_amount = amount
         bank_amount = amount
@@ -59,24 +62,28 @@ def generate_data(num_records=1000, is_demo=True):
         
         skip_settlement = False
         duplicate = False
+        missing_bank = False
+        ambiguous_bank = False
         
-        if anomaly < 0.60:
+        if anomaly < 0.55:
             pass # exact match
-        elif anomaly < 0.70:
+        elif anomaly < 0.65:
             setl_amount = amount + Decimal("10.00") # Amount discrepancy
-        elif anomaly < 0.78:
+        elif anomaly < 0.73:
             skip_settlement = True
-        elif anomaly < 0.84:
+        elif anomaly < 0.79:
             duplicate = True
-        elif anomaly < 0.89:
+        elif anomaly < 0.84:
             setl_amount = round(amount * Decimal("0.98"), 2) # Fee mismatch
             bank_amount = setl_amount
-        elif anomaly < 0.93:
+        elif anomaly < 0.88:
             setl_ref = f"wrong_{payment_id}" # Reference mismatch
-        elif anomaly < 0.96:
+        elif anomaly < 0.91:
             setl_time = payment_time + timedelta(days=5) # Delayed
+        elif anomaly < 0.96:
+            missing_bank = True
         else:
-            setl_amount = round(amount * Decimal("0.5"), 2) # Partial
+            ambiguous_bank = True
         
         if not skip_settlement:
             settlements.append({
@@ -90,17 +97,31 @@ def generate_data(num_records=1000, is_demo=True):
                 "metadata_json": "{}"
             })
             
-            bank_transactions.append({
-                "id": bank_txn_id,
-                "external_id": bank_txn_id,
-                "merchant_id": merchant_id,
-                "amount": bank_amount,
-                "transaction_time": bank_time.isoformat(),
-                "bank_reference": setl_ref,
-                "description": f"Settlement {settlement_id}",
-                "type": "CREDIT",
-                "metadata_json": "{}"
-            })
+            if not missing_bank:
+                bank_transactions.append({
+                    "id": bank_txn_id,
+                    "external_id": bank_txn_id,
+                    "merchant_id": merchant_id,
+                    "amount": bank_amount,
+                    "transaction_time": bank_time.isoformat(),
+                    "bank_reference": setl_ref,
+                    "description": f"Settlement {settlement_id}",
+                    "type": "CREDIT",
+                    "metadata_json": "{}"
+                })
+                
+                if ambiguous_bank:
+                    bank_transactions.append({
+                        "id": f"{bank_txn_id}_ambig",
+                        "external_id": f"{bank_txn_id}_ambig",
+                        "merchant_id": merchant_id,
+                        "amount": bank_amount,
+                        "transaction_time": bank_time.isoformat(), # Exact same time
+                        "bank_reference": setl_ref, # Exact same ref
+                        "description": f"Settlement {settlement_id}",
+                        "type": "CREDIT",
+                        "metadata_json": "{}"
+                    })
             
             if duplicate:
                 settlements.append({
@@ -113,7 +134,6 @@ def generate_data(num_records=1000, is_demo=True):
                     "status": "processed",
                     "metadata_json": "{}"
                 })
-    
     def write_csv(filename, data, fieldnames):
         with open(f"{output_dir}/{filename}", 'w', newline='') as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)

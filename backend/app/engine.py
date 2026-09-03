@@ -160,7 +160,40 @@ class ReconciliationEngine:
         for bid in matched_bank_tx_ids:
             unmatched_bank_txs.pop(bid, None)
 
+    def _score_bank_candidates(self, p, s, bank_candidates):
+        from decimal import Decimal
+        scored = []
+        for b in bank_candidates:
+            score = 0.0
+            
+            # 1. Merchant match
+            if b.merchant_id == s.merchant_id:
+                score += 0.2
+            
+            # 2. Reference match
+            if b.bank_reference in [p.id, s.reference, s.id]:
+                score += 0.4
+                
+            # 3. Amount match
+            if b.amount == s.settlement_amount:
+                score += 0.3
+            elif s.settlement_amount > 0 and abs(b.amount - s.settlement_amount) / s.settlement_amount <= Decimal("0.05"):
+                score += 0.1
+                
+            # 4. Time proximity
+            time_diff = abs((b.transaction_time - s.settlement_time).total_seconds())
+            if time_diff <= 86400 * 3: # 3 days
+                score += 0.1
+                
+            scored.append((score, b))
+        
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return scored
+
     def _resolve_remaining(self, unmatched_payments, unmatched_settlements, unmatched_bank_txs):
+        import uuid
+        import json
+        from decimal import Decimal
         for p_id, p in unmatched_payments.items():
             candidates = []
             same_ref_settlements = []
@@ -172,26 +205,43 @@ class ReconciliationEngine:
                     candidates.append(s)
             
             resolved = False
+            exc_type = "AMBIGUOUS_MATCH"
+            explanation = ""
+            
             for s in candidates:
-                # Find best bank transaction match if any
+                # 1. Deterministic bank candidate scoring
+                plausible_bank_txs = [b for b in unmatched_bank_txs.values() if b.merchant_id == p.merchant_id]
+                scored_banks = self._score_bank_candidates(p, s, plausible_bank_txs)
+                
                 b_match = None
-                for b_id, b in unmatched_bank_txs.items():
-                    # We relax the strict == s.settlement_amount check and let PolicyEngine handle tolerance checks if we wanted, 
-                    # but since the prompt says "Do not require exact bank_reference matching for every legitimate candidate"
-                    # let's just find the one that either matches the settlement reference or the payment reference.
-                    if b.bank_reference in [p.id, s.reference, s.id]:
-                        b_match = b
-                        break
+                ambiguous_bank = False
+                
+                if scored_banks:
+                    best_score = scored_banks[0][0]
+                    if best_score >= 0.5:
+                        ties = [b for score, b in scored_banks if score == best_score]
+                        if len(ties) > 1:
+                            ambiguous_bank = True
+                        else:
+                            b_match = ties[0]
 
                 passed, failed, blocking, decision = PolicyEngine.evaluate_match(p, s, b_match)
+                
+                if ambiguous_bank:
+                    decision = "ESCALATE"
+                    blocking.append("AMBIGUOUS_BANK_MATCH: Multiple bank transactions have equally high match scores.")
+                    exc_type = "AMBIGUOUS_BANK_MATCH"
+                elif b_match is None:
+                    # If we have a settlement but no bank match, it's missing bank tx
+                    exc_type = "MISSING_BANK_TRANSACTION"
                 
                 if decision in ["MATCH_3_WAY", "MATCH_2_WAY"]:
                     time_diff = abs((s.settlement_time - p.payment_time).total_seconds())
                     diff = abs(p.amount - s.settlement_amount)
                     
-                    explanation = ", ".join(passed)
+                    explanation_text = ", ".join(passed)
                     if failed:
-                        explanation += ". Warnings: " + ", ".join(failed)
+                        explanation_text += ". Warnings: " + ", ".join(failed)
                         
                     result = ReconciliationResult(
                         id=f"res_{uuid.uuid4().hex[:12]}",
@@ -206,7 +256,7 @@ class ReconciliationEngine:
                         decision_source="DETERMINISTIC",
                         reason_codes_json=json.dumps(["FEE_MISMATCH"] if diff > 0 else []),
                         time_difference_seconds=time_diff,
-                        explanation=explanation
+                        explanation=explanation_text
                     )
                     self.session.add(result)
                     
@@ -217,44 +267,43 @@ class ReconciliationEngine:
                             result_id=result.id,
                             exception_type="MISSING_BANK_TRANSACTION",
                             severity="HIGH",
-                            description="Resolved via 2-way match. " + explanation,
+                            description="Resolved via 2-way match. " + explanation_text,
                             status="OPEN"
                         )
                         self.session.add(exc)
-                        self._log_audit("ESCALATE_MISSING_BANK", "Payment", p.id, "SYSTEM", decision="ESCALATE", reason=explanation)
+                        self._log_audit("ESCALATE_MISSING_BANK", "Payment", p.id, "SYSTEM", decision="ESCALATE", reason=explanation_text)
                     else:
                         unmatched_bank_txs.pop(b_match.id, None)
-                        self._log_audit("MATCH_3_WAY", "Payment", p.id, "SYSTEM", decision="MATCH", reason=explanation)
+                        self._log_audit("MATCH_3_WAY", "Payment", p.id, "SYSTEM", decision="MATCH", reason=explanation_text)
 
                     resolved = True
                     unmatched_settlements.pop(s.id, None)
                     break
+                else:
+                    explanation = ". ".join(blocking)
             
             if not resolved:
-                exc_type = "AMBIGUOUS_MATCH"
-                if len(candidates) == 0:
-                    exc_type = "MISSING_SETTLEMENT"
-                elif len(same_ref_settlements) > 1:
-                    exc_type = "DUPLICATE_SETTLEMENT"
-                elif len(same_ref_settlements) == 1:
-                    s = same_ref_settlements[0]
-                    # We can use policy to get the exact failure reasons
-                    b_match = next((b for b in unmatched_bank_txs.values() if b.bank_reference in [p.id, s.reference, s.id]), None)
-                    passed, failed, blocking, dec = PolicyEngine.evaluate_match(p, s, b_match)
-                    if any("time" in b.lower() for b in blocking):
-                        exc_type = "DELAYED_SETTLEMENT"
-                    elif any("tolerance" in b.lower() for b in blocking):
-                        exc_type = "AMOUNT_MISMATCH"
+                if exc_type == "AMBIGUOUS_MATCH":
+                    if len(candidates) == 0:
+                        exc_type = "MISSING_SETTLEMENT"
+                        explanation = "No settlement candidates found within time window."
+                    elif len(same_ref_settlements) > 1:
+                        exc_type = "DUPLICATE_SETTLEMENT"
+                    elif len(same_ref_settlements) == 1:
+                        s = same_ref_settlements[0]
+                        b_match = next((b for b in unmatched_bank_txs.values() if b.bank_reference in [p.id, s.reference, s.id]), None)
+                        passed, failed, blocking, dec = PolicyEngine.evaluate_match(p, s, b_match)
+                        explanation = ". ".join(blocking)
+                        if any("time" in b.lower() for b in blocking):
+                            exc_type = "DELAYED_SETTLEMENT"
+                        elif any("tolerance" in b.lower() for b in blocking):
+                            exc_type = "AMOUNT_MISMATCH"
                 
                 # Fetch a detailed explanation using policy on the best candidate if it exists
-                best_cand = candidates[0] if candidates else None
-                b_best = None
-                if best_cand:
-                    b_best = next((b for b in unmatched_bank_txs.values() if b.bank_reference in [p.id, best_cand.reference, best_cand.id]), None)
-                passed, failed, blocking, dec = PolicyEngine.evaluate_match(p, best_cand, b_best)
-                
-                blocking_str = ", ".join(blocking) if blocking else "No specific blocks."
-                
+                if not explanation and candidates:
+                    passed, failed, blocking, dec = PolicyEngine.evaluate_match(p, candidates[0], None)
+                    explanation = ". ".join(blocking)
+
                 result = ReconciliationResult(
                     id=f"res_{uuid.uuid4().hex[:12]}",
                     run_id=self.run_id,
@@ -263,7 +312,7 @@ class ReconciliationEngine:
                     result_type="UNRESOLVED",
                     confidence=0.0,
                     decision_source="DETERMINISTIC",
-                    explanation=f"Policy Blockers: {blocking_str}"
+                    explanation=explanation
                 )
                 self.session.add(result)
                 
@@ -272,12 +321,12 @@ class ReconciliationEngine:
                     run_id=self.run_id,
                     result_id=result.id,
                     exception_type=exc_type,
-                    severity="HIGH" if p.amount > 10000 else "MEDIUM",
-                    description=f"Blockers: {blocking_str}",
+                    severity="HIGH",
+                    description=explanation or "No viable candidates found.",
                     status="OPEN"
                 )
                 self.session.add(exc)
-                self._log_audit("ESCALATE_TO_REVIEW", "Payment", p.id, "SYSTEM", decision="ESCALATE", reason="No deterministic match")
+                self._log_audit(f"ESCALATE_{exc_type}", "Payment", p.id, "SYSTEM", decision="ESCALATE", reason=explanation)
 
     def _log_audit(self, action: str, entity_type: str, entity_id: str, actor: str, decision: str = None, reason: str = None):
         audit = AuditEvent(
