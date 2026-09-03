@@ -81,6 +81,7 @@ class ReconciliationResult(SQLModel, table=True):
     reason_codes_json: Optional[str] = None
     explanation: Optional[str] = None
     decision_source: str # 'DETERMINISTIC', 'AI', 'HUMAN'
+    metadata_json: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     
     @property
@@ -129,6 +130,13 @@ class EvaluationRun(SQLModel, table=True):
     precision: float
     recall: float
     accuracy: float
+    
+    # New fields for 3-way evaluation
+    settlement_correct_matches: int = 0
+    bank_correct_matches: int = 0
+    three_way_precision: Optional[float] = None
+    three_way_recall: Optional[float] = None
+    
     auto_resolution_precision: Optional[float] = None
     three_way_match_rate: Optional[float] = None
     unresolved_rate: Optional[float] = None

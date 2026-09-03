@@ -1,16 +1,9 @@
-import os
-from sqlmodel import Session, select
-from typing import List
-from app.models import Payment, Settlement, ReconciliationResult, EvaluationRun, ReconciliationRun
-from decimal import Decimal
-import pandas as pd
-import uuid
+import re
 
-class EvaluationEngine:
-    def __init__(self, session: Session):
-        self.session = session
-        
-    def evaluate(self, run_id: str, dataset_name: str = "demo") -> EvaluationRun:
+with open("backend/app/evaluation.py", "r") as f:
+    content = f.read()
+
+new_eval = """    def evaluate(self, run_id: str, dataset_name: str = "demo") -> EvaluationRun:
         # Fetch the results from the run
         results = self.session.exec(select(ReconciliationResult).where(ReconciliationResult.run_id == run_id)).all()
         
@@ -127,5 +120,14 @@ class EvaluationEngine:
         )
         self.session.add(eval_run)
         self.session.commit()
-        self.session.refresh(eval_run)
-        return eval_run
+        return eval_run"""
+
+start_idx = content.find("    def evaluate")
+end_idx = content.find("        self.session.add(eval_run)\n        self.session.commit()\n        return eval_run")
+end_idx = content.find("\n", end_idx + len("        return eval_run"))
+
+if start_idx != -1 and end_idx != -1:
+    content = content[:start_idx] + new_eval + content[end_idx:]
+
+with open("backend/app/evaluation.py", "w") as f:
+    f.write(content)

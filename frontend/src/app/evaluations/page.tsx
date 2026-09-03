@@ -90,7 +90,13 @@ export default function EvaluationsPage() {
                 <EvalStat label="Recall" value={`${(run.recall * 100).toFixed(1)}%`} />
                 <EvalStat label="Accuracy" value={`${(run.accuracy * 100).toFixed(1)}%`} />
                 <EvalStat label="Unresolved Rate" value={`${((run.unresolved_records / run.total_records) * 100).toFixed(1)}%`} />
-                <EvalStat label="Auto-Res. Precision" value={run.auto_resolution_precision ? `${(run.auto_resolution_precision * 100).toFixed(1)}%` : "—"} />
+                <EvalStat label="Auto-Res. Precision" value={run.auto_resolution_precision !== null ? `${(run.auto_resolution_precision * 100).toFixed(1)}%` : "—"} />
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4 border-t border-slate-100 pt-4">
+                <EvalStat label="3-Way Precision" value={run.three_way_precision !== null ? `${(run.three_way_precision * 100).toFixed(1)}%` : "—"} highlight="blue" />
+                <EvalStat label="3-Way Recall" value={run.three_way_recall !== null ? `${(run.three_way_recall * 100).toFixed(1)}%` : "—"} />
+                <EvalStat label="3-Way Match Rate" value={run.three_way_match_rate !== null ? `${(run.three_way_match_rate * 100).toFixed(1)}%` : "—"} />
+                <EvalStat label="Throughput (rec/s)" value={run.throughput_records_per_second ? run.throughput_records_per_second.toFixed(1) : "—"} />
               </div>
             </div>
           </div>
@@ -101,7 +107,10 @@ export default function EvaluationsPage() {
 }
 
 function EvalStat({ label, value, highlight, large }: { label: string; value: string | number; highlight?: string; large?: boolean }) {
-  const bg = highlight === 'green' ? 'bg-green-50 border-green-200' : highlight === 'red' ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-100';
+  const bg = highlight === 'green' ? 'bg-green-50 border-green-200' : 
+             highlight === 'red' ? 'bg-red-50 border-red-200' : 
+             highlight === 'blue' ? 'bg-blue-50 border-blue-200 text-blue-900' :
+             'bg-slate-50 border-slate-100';
   return (
     <div className={`p-3 rounded-lg border ${bg}`}>
       <div className="text-xs text-slate-500 mb-1">{label}</div>

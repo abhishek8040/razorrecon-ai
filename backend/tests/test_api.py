@@ -38,8 +38,8 @@ def test_ai_investigate_fallback(client: TestClient, session: Session):
     response = client.post(f"/api/exceptions/{exc.id}/investigate")
     assert response.status_code == 200
     data = response.json()
-    assert data["decision"] == "UNRESOLVED"
-    assert data["reason_codes"][0] in ["NO_CANDIDATES", "NO_CANDIDATE_SETTLEMENTS"]
+    assert data["investigation"]["decision"] == "REVIEW"
+    assert "AI_FAILURE" in data["investigation"]["reason_codes"]
 
 def test_ai_investigate_hard_failure(client: TestClient, session: Session, monkeypatch):
     # This tests the hard exception fallback in main.py
@@ -63,5 +63,5 @@ def test_ai_investigate_hard_failure(client: TestClient, session: Session, monke
     response = client.post(f"/api/exceptions/{exc.id}/investigate")
     assert response.status_code == 200
     data = response.json()
-    assert data["decision"] == "REVIEW"
-    assert data["reason_codes"] == ["AI_FAILURE"]
+    assert data["investigation"]["decision"] == "REVIEW"
+    assert data["investigation"]["reason_codes"] == ["AI_FAILURE"]

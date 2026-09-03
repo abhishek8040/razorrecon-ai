@@ -26,7 +26,8 @@ export default function ExceptionsPage() {
     setAiLoading(true);
     try {
       const data = await fetchApi(`/exceptions/${exc.id}/investigate`, { method: "POST" });
-      const updatedExc = { ...exc, ai_analysis: data.explanation, recommended_action: data.recommended_action, ai_decision: data.decision, ai_confidence: data.confidence };
+      const inv = data.investigation || data;
+      const updatedExc = { ...exc, ai_analysis: inv.explanation, recommended_action: inv.recommended_action, ai_decision: inv.decision, ai_confidence: inv.confidence };
       setExceptions(exceptions.map(e => e.id === exc.id ? updatedExc : e));
       setSelectedExc(updatedExc);
     } catch (err) {

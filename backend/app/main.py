@@ -4,6 +4,7 @@ from sqlmodel import Session, select, func
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 import uuid
+import json
 import pandas as pd
 import io
 import os
@@ -13,7 +14,8 @@ from dotenv import load_dotenv
 
 from app.database import get_session, create_db_and_tables
 from app.models import Merchant, Payment, Settlement, BankTransaction, ReconciliationRun, ReconciliationResult, ExceptionRecord, AuditEvent, EvaluationRun
-from app.engine import ReconciliationEngine, MAX_TIME_WINDOW_DAYS
+from app.engine import ReconciliationEngine
+from app.policy import PolicyEngine
 from app.evaluation import EvaluationEngine
 from app.ai import AIInvestigator, FinancialAssistant
 
@@ -127,7 +129,7 @@ def investigate_exception(exception_id: str, session: Session = Depends(get_sess
     valid_candidates = []
     for s in settlements:
         time_diff = abs((s.settlement_time - p.payment_time).total_seconds())
-        if time_diff <= MAX_TIME_WINDOW_DAYS * 86400:
+        if time_diff <= PolicyEngine.MAX_TIME_WINDOW_DAYS * 86400:
             valid_candidates.append(s)
             
     valid_candidates.sort(key=lambda s: abs(s.settlement_amount - p.amount))
@@ -138,7 +140,7 @@ def investigate_exception(exception_id: str, session: Session = Depends(get_sess
     valid_bank_candidates = []
     for b in bank_txs:
         time_diff = abs((b.transaction_time - p.payment_time).total_seconds())
-        if time_diff <= MAX_TIME_WINDOW_DAYS * 86400 * 2: # Give bank extra time
+        if time_diff <= PolicyEngine.MAX_TIME_WINDOW_DAYS * 86400 * 2: # Give bank extra time
             valid_bank_candidates.append(b)
             
     valid_bank_candidates.sort(key=lambda b: abs(b.amount - p.amount))
@@ -151,69 +153,95 @@ def investigate_exception(exception_id: str, session: Session = Depends(get_sess
         # Deterministic Policy Checks
         policy_overridden = False
         policy_reason = ""
+        passed_checks = []
+        failed_checks = []
+        blocking_checks = []
+        
         if ai_decision.get("decision") == "MATCH":
             confidence = ai_decision.get("confidence", 0.0)
-            if confidence < 0.95:
+            if confidence < PolicyEngine.MIN_AUTO_RESOLUTION_CONFIDENCE:
                 policy_overridden = True
-                policy_reason = f"AI confidence ({confidence}) is below the strict 0.95 threshold for auto-resolution."
-            elif len(candidates) > 1 and abs(candidates[0].settlement_amount - p.amount) > p.amount * Decimal("0.1"):
-                policy_overridden = True
-                policy_reason = "Multiple candidates exist and amount difference exceeds 10% safety margin."
+                policy_reason = f"AI confidence ({confidence}) is below the strict {PolicyEngine.MIN_AUTO_RESOLUTION_CONFIDENCE} threshold for auto-resolution."
+                blocking_checks.append(policy_reason)
+            else:
+                # Use policy engine to evaluate the matched candidate
+                matched_s_id = ai_decision.get("matched_settlement_id")
+                matched_s = next((s for s in candidates if s.id == matched_s_id), None) if matched_s_id else None
                 
+                matched_b_id = ai_decision.get("matched_bank_transaction_id")
+                matched_b = next((b for b in bank_candidates if b.id == matched_b_id), None) if matched_b_id else None
+                
+                if matched_s:
+                    passed, failed, blocking, dec = PolicyEngine.evaluate_match(p, matched_s, matched_b)
+                    passed_checks = passed
+                    failed_checks = failed
+                    blocking_checks = blocking
+                    if len(blocking) > 0:
+                        policy_overridden = True
+                        policy_reason = "Policy Blockers: " + ", ".join(blocking)
+                else:
+                    policy_overridden = True
+                    policy_reason = "AI suggested a MATCH but did not provide a valid matched_settlement_id."
+                    blocking_checks.append(policy_reason)
+
         if policy_overridden:
             ai_decision["decision"] = "REVIEW"
-            ai_decision["explanation"] += f"\n\n[POLICY ENGINE OVERRIDE]: {policy_reason}"
-            ai_decision["recommended_action"] = "Human review mandated by safety policy."
+            ai_decision["explanation"] += f"\\n\\n[POLICY OVERRIDE] {policy_reason}"
+            ai_decision["recommended_action"] = "Manual human review required"
             
-    except Exception as e:
-        ai_decision = {
-            "decision": "REVIEW",
-            "confidence": 0.0,
-            "reason_codes": ["AI_FAILURE"],
-            "explanation": f"AI investigation failed: {str(e)}. Case escalated to human review.",
-            "recommended_action": "Manual human review required"
-        }
+        ai_decision["passed_checks"] = passed_checks
+        ai_decision["failed_checks"] = failed_checks
+        ai_decision["blocking_checks"] = blocking_checks
+
+        res.metadata_json = json.dumps({"ai_investigation": ai_decision})
+        session.add(res)
         
         audit = AuditEvent(
             id=f"evt_{uuid.uuid4().hex[:12]}",
-            run_id=exc.run_id,
-            action="AI_FAILURE",
-            entity_type="Exception",
-            entity_id=exc.id,
-            actor="SYSTEM",
-            decision="REVIEW",
-            reason=str(e)
-        )
-        session.add(audit)
-    
-    exc.ai_analysis = ai_decision.get("explanation")
-    exc.recommended_action = ai_decision.get("recommended_action")
-    session.add(exc)
-    
-    run = session.exec(select(ReconciliationRun).where(ReconciliationRun.id == exc.run_id)).first()
-    if run:
-        run.ai_investigated += 1
-        session.add(run)
-    
-    if ai_decision.get("reason_codes") != ["AI_FAILURE"]:
-        audit = AuditEvent(
-            id=f"evt_{uuid.uuid4().hex[:12]}",
-            run_id=exc.run_id,
+            run_id=res.run_id,
             action="AI_INVESTIGATION",
-            entity_type="Exception",
-            entity_id=exc.id,
+            entity_type="Payment",
+            entity_id=p.id,
             actor="AI",
             decision=ai_decision.get("decision"),
             reason=ai_decision.get("explanation")
         )
         session.add(audit)
         
-    session.commit()
-    return ai_decision
+        session.commit()
+        return {"status": "success", "investigation": ai_decision}
+    except Exception as e:
+        # Structured fallback for AI failure
+        fallback_decision = {
+            "decision": "REVIEW",
+            "confidence": 0.0,
+            "reason_codes": ["AI_FAILURE"],
+            "explanation": f"AI investigation failed: {str(e)}. Case escalated to human review.",
+            "recommended_action": "Manual human review required",
+            "passed_checks": [],
+            "failed_checks": [],
+            "blocking_checks": ["AI_FAILURE"]
+        }
+        res.metadata_json = json.dumps({"ai_investigation": fallback_decision})
+        session.add(res)
+        
+        audit = AuditEvent(
+            id=f"evt_{uuid.uuid4().hex[:12]}",
+            run_id=res.run_id,
+            action="AI_FAILURE",
+            entity_type="Payment",
+            entity_id=p.id,
+            actor="SYSTEM",
+            decision="REVIEW",
+            reason=str(e)
+        )
+        session.add(audit)
+        session.commit()
+        return {"status": "success", "investigation": fallback_decision}
 
 class HumanReview(BaseModel):
     notes: Optional[str] = None
-
+    
 @app.post("/api/exceptions/{exception_id}/resolve")
 def resolve_exception(exception_id: str, review: HumanReview = None, session: Session = Depends(get_session)):
     exc = session.exec(select(ExceptionRecord).where(ExceptionRecord.id == exception_id)).first()
@@ -280,38 +308,54 @@ def get_evaluations(session: Session = Depends(get_session)):
 
 @app.post("/api/evaluate/heldout")
 def evaluate_heldout(session: Session = Depends(get_session)):
+    from sqlmodel import create_engine, Session as SQLSession, SQLModel
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     heldout_dir = os.path.join(project_root, "data", "heldout")
     
     try:
-        payments_df = pd.read_csv(os.path.join(heldout_dir, "payments.csv"))
-        settlements_df = pd.read_csv(os.path.join(heldout_dir, "settlements.csv"))
+        # 1. Create a completely isolated in-memory DB for the engine run
+        mem_engine = create_engine("sqlite:///:memory:")
+        SQLModel.metadata.create_all(mem_engine)
         
-        # Load heldout data temporarily
-        for _, row in payments_df.iterrows():
-            row_dict = row.to_dict()
-            row_dict["payment_time"] = pd.to_datetime(row_dict["payment_time"]).to_pydatetime()
-            record = Payment(**row_dict)
-            session.add(record)
+        with SQLSession(mem_engine) as mem_session:
+            payments_df = pd.read_csv(os.path.join(heldout_dir, "payments.csv"))
+            settlements_df = pd.read_csv(os.path.join(heldout_dir, "settlements.csv"))
+            bank_txs_df = pd.read_csv(os.path.join(heldout_dir, "bank_transactions.csv"))
             
-        for _, row in settlements_df.iterrows():
-            row_dict = row.to_dict()
-            row_dict["settlement_time"] = pd.to_datetime(row_dict["settlement_time"]).to_pydatetime()
-            record = Settlement(**row_dict)
-            session.add(record)
+            # Load heldout data temporarily
+            for _, row in payments_df.iterrows():
+                row_dict = row.to_dict()
+                row_dict["payment_time"] = pd.to_datetime(row_dict["payment_time"]).to_pydatetime()
+                mem_session.add(Payment(**row_dict))
+                
+            for _, row in settlements_df.iterrows():
+                row_dict = row.to_dict()
+                row_dict["settlement_time"] = pd.to_datetime(row_dict["settlement_time"]).to_pydatetime()
+                mem_session.add(Settlement(**row_dict))
+                
+            for _, row in bank_txs_df.iterrows():
+                row_dict = row.to_dict()
+                row_dict["transaction_time"] = pd.to_datetime(row_dict["transaction_time"]).to_pydatetime()
+                mem_session.add(BankTransaction(**row_dict))
+                
+            mem_session.commit()
             
-        session.commit()
-        
-        # Run reconciliation on ALL (or could filter by some merchant if needed, keeping simple)
-        run_id = f"run_{uuid.uuid4().hex[:12]}"
-        engine = ReconciliationEngine(session, run_id)
-        run = engine.run(None)
-        
-        # Run evaluation
-        eval_engine = EvaluationEngine(session)
-        eval_run = eval_engine.evaluate(run.id, "heldout")
-        
-        return eval_run
+            # Run reconciliation on isolated DB
+            run_id = f"run_{uuid.uuid4().hex[:12]}"
+            recon_engine = ReconciliationEngine(mem_session, run_id)
+            run = recon_engine.run(None)
+            
+            # Run evaluation on isolated DB
+            eval_engine = EvaluationEngine(mem_session)
+            eval_run = eval_engine.evaluate(run.id, "heldout")
+            
+            # Copy evaluation run to the main DB
+            main_eval_run = EvaluationRun(**eval_run.model_dump())
+            session.add(main_eval_run)
+            session.commit()
+            
+            return main_eval_run
+            
     except Exception as e:
         session.rollback()
         raise HTTPException(status_code=500, detail=str(e))
