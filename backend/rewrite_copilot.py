@@ -1,4 +1,7 @@
+import os
+import json
 
+code = """
 import os
 from decimal import Decimal
 from typing import List, Dict, Any, Optional
@@ -15,7 +18,7 @@ class CopilotTools:
         self.session = session
         
     def get_reconciliation_metrics(self) -> dict:
-        """Retrieve live metrics for the current/latest reconciliation run."""
+        \"\"\"Retrieve live metrics for the current/latest reconciliation run.\"\"\"
         latest_run = self.session.exec(select(ReconciliationRun).order_by(ReconciliationRun.created_at.desc()).limit(1)).first()
         if not latest_run:
             return {"message": "No reconciliation runs found."}
@@ -44,7 +47,7 @@ class CopilotTools:
         }
 
     def get_transaction_details(self, transaction_id: str) -> dict:
-        """Retrieve verified structured information about a specific transaction."""
+        \"\"\"Retrieve verified structured information about a specific transaction.\"\"\"
         if not isinstance(transaction_id, str) or not transaction_id.strip():
             return {"error": "Invalid transaction_id"}
         transaction_id = transaction_id.strip()[:100]
@@ -95,7 +98,7 @@ class CopilotTools:
         return details
 
     def search_transactions(self, transaction_id: str = None, merchant_id: str = None, status: str = None, min_amount: float = None, max_amount: float = None, start_date: str = None, end_date: str = None, limit: int = 10) -> dict:
-        """Search/filter transactions for the current/latest run."""
+        \"\"\"Search/filter transactions for the current/latest run.\"\"\"
         try:
             limit = max(1, min(int(limit), 50))
         except (ValueError, TypeError):
@@ -146,7 +149,7 @@ class CopilotTools:
         return {"count": len(txs), "transactions": txs}
 
     def get_exception_summary(self) -> dict:
-        """Return summary of exceptions for the current run."""
+        \"\"\"Return summary of exceptions for the current run.\"\"\"
         latest_run = self.session.exec(select(ReconciliationRun).order_by(ReconciliationRun.created_at.desc()).limit(1)).first()
         if not latest_run:
             return {"total_exceptions": 0}
@@ -165,7 +168,7 @@ class CopilotTools:
         }
 
     def get_exception_details(self, exception_id: str) -> dict:
-        """Return detailed information about a specific exception."""
+        \"\"\"Return detailed information about a specific exception.\"\"\"
         if not isinstance(exception_id, str) or not exception_id.strip():
             return {"error": "Invalid exception_id"}
         exception_id = exception_id.strip()[:100]
@@ -218,7 +221,7 @@ class CopilotTools:
         return details
 
     def get_policy_explanation(self, transaction_id: str) -> dict:
-        """Return actual deterministic policy evaluation for a transaction."""
+        \"\"\"Return actual deterministic policy evaluation for a transaction.\"\"\"
         if not isinstance(transaction_id, str) or not transaction_id.strip():
             return {"error": "Invalid transaction_id"}
         transaction_id = transaction_id.strip()[:100]
@@ -255,7 +258,7 @@ class CopilotTools:
         }
 
     def get_audit_trail(self, transaction_id: str, limit: int = 10) -> dict:
-        """Return chronological audit history for a transaction."""
+        \"\"\"Return chronological audit history for a transaction.\"\"\"
         if not isinstance(transaction_id, str) or not transaction_id.strip():
             return {"error": "Invalid transaction_id"}
         transaction_id = transaction_id.strip()[:100]
@@ -390,7 +393,7 @@ class FinanceCopilot:
         
         client = genai.Client(api_key=self.api_key)
         
-        system_instruction = """You are RazorRecon Finance Copilot.
+        system_instruction = \"\"\"You are RazorRecon Finance Copilot.
 You help users understand verified reconciliation data.
 You must base factual financial claims on data returned by approved tools.
 Never invent transaction amounts, statuses, counts, policy decisions, or audit events.
@@ -404,7 +407,7 @@ When answering:
 4. Clearly distinguish facts from interpretation.
 5. Clearly state uncertainty where applicable.
 Never expose API keys, environment variables, or database credentials.
-Do not provide legal, tax, investment, or accounting advice."""
+Do not provide legal, tax, investment, or accounting advice.\"\"\"
 
         tools_used = []
         MAX_TOOL_CALLS = 5
@@ -468,3 +471,7 @@ Do not provide legal, tax, investment, or accounting advice."""
                 "answer": "AI explanation is temporarily unavailable. The underlying reconciliation system and verified data remain available.",
                 "tools_used": tools_used
             }
+"""
+
+with open("app/copilot.py", "w") as f:
+    f.write(code)
