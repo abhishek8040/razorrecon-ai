@@ -248,6 +248,21 @@ def resolve_exception(exception_id: str, review: HumanReview = None, session: Se
     exc.reviewed_by = "USER"
     exc.reviewed_at = datetime.utcnow()
     session.add(exc)
+
+    # Update the Run Metrics dynamically so the Dashboard reflects human work
+    run = session.exec(select(ReconciliationRun).where(ReconciliationRun.id == exc.run_id)).first()
+    if run:
+        run.escalated = max(0, run.escalated - 1)
+        run.unresolved = max(0, run.unresolved - 1)
+        run.auto_matched += 1
+        session.add(run)
+
+    # Mark the underlying result as manually resolved
+    if exc.result_id:
+        res = session.exec(select(ReconciliationResult).where(ReconciliationResult.id == exc.result_id)).first()
+        if res:
+            res.result_type = "RESOLVED_MANUAL"
+            session.add(res)
     
     notes = review.notes if review else None
     
@@ -276,6 +291,13 @@ def reject_exception(exception_id: str, review: HumanReview = None, session: Ses
     exc.reviewed_at = datetime.utcnow()
     session.add(exc)
     
+    # Update the Run Metrics dynamically so the Dashboard reflects human work
+    run = session.exec(select(ReconciliationRun).where(ReconciliationRun.id == exc.run_id)).first()
+    if run:
+        run.escalated = max(0, run.escalated - 1)
+        # Note: We leave `unresolved` alone or handle it differently if rejected.
+        session.add(run)
+
     notes = review.notes if review else None
     
     audit = AuditEvent(
