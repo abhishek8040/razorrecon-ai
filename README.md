@@ -13,7 +13,7 @@ In financial systems, deterministic accuracy is paramount. AI cannot be trusted 
 *   **Deterministic Core Engine**: Exact matching and policy-based auto-resolution (e.g., standard fee tolerance) are handled by a deterministic Python engine.
 *   **AI Investigator**: When an ambiguous exception occurs (e.g., missing settlement, abnormal amount mismatch), the system escalates it. The Gemini AI agent then investigates the candidates and provides a structured JSON recommendation (MATCH, REVIEW, UNRESOLVED).
 *   **Data Ingestion UI**: Upload custom CSVs for Payments, Settlements, and Bank Transactions directly through the dashboard.
-*   **Finance Q&A Assistant**: A conversational AI interface grounded in live reconciliation data that allows you to query your metrics and exception statuses.
+*   **Tool-Grounded Finance Copilot**: A conversational AI interface grounded in live reconciliation data that allows you to query your metrics and exception statuses using verified tools.
 *   **Immutable Audit Ledger**: Every system action, policy auto-resolution, and AI recommendation is deterministically logged with reason codes.
 *   **Evaluation Engine**: Built-in benchmarking against held-out datasets to accurately measure Precision, Recall, and Auto-Match rates.
 

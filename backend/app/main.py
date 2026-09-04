@@ -360,50 +360,11 @@ class QAQuery(BaseModel):
     query: str
 
 @app.post("/api/qa")
-def ask_finance_assistant(query: QAQuery, session: Session = Depends(get_session)):
-    # Build context
-    total_payments = session.exec(select(func.count(Payment.id))).one()
-    total_value = session.exec(select(func.sum(Payment.amount))).one() or 0
-    open_exceptions = session.exec(select(func.count(ExceptionRecord.id)).where(ExceptionRecord.status == "OPEN")).one()
-    latest_eval = session.exec(select(EvaluationRun).order_by(EvaluationRun.created_at.desc()).limit(1)).first()
-    recent_exc = session.exec(select(ExceptionRecord).order_by(ExceptionRecord.created_at.desc()).limit(5)).all()
-    latest_run = session.exec(select(ReconciliationRun).order_by(ReconciliationRun.created_at.desc()).limit(1)).first()
-    
-    context = {
-        "total_payments": total_payments,
-        "total_value": float(total_value),
-        "open_exceptions": open_exceptions,
-        "accuracy": float(latest_eval.accuracy * 100) if latest_eval else 0.0,
-        "recent_exceptions": [{"id": e.id, "type": e.exception_type, "severity": e.severity} for e in recent_exc]
-    }
-    
-    if latest_run and latest_run.total_records > 0:
-        context["auto_match_rate"] = latest_run.auto_matched / latest_run.total_records
-        context["processing_time"] = latest_run.processing_time_ms
-        
-        unresolved_results = session.exec(select(ReconciliationResult).where(ReconciliationResult.run_id == latest_run.id, ReconciliationResult.result_type == "UNRESOLVED")).all()
-        unresolved_payment_ids = [r.source_record_id for r in unresolved_results]
-        
-        unreconciled_amount = 0
-        if unresolved_payment_ids:
-            unresolved_payments = session.exec(select(Payment).where(Payment.id.in_(unresolved_payment_ids))).all()
-            unreconciled_amount = sum([p.amount for p in unresolved_payments])
-        context["unreconciled_amount"] = float(unreconciled_amount)
-        
-        exceptions = session.exec(select(ExceptionRecord).where(ExceptionRecord.run_id == latest_run.id)).all()
-        breakdown = {}
-        for exc in exceptions:
-            breakdown[exc.exception_type] = breakdown.get(exc.exception_type, 0) + 1
-        context["exception_breakdown"] = breakdown
-        
-        # Get top 3 largest exceptions
-        if unresolved_payment_ids:
-            largest_unresolved = session.exec(select(Payment).where(Payment.id.in_(unresolved_payment_ids)).order_by(Payment.amount.desc()).limit(3)).all()
-            context["top_3_largest_exceptions"] = [{"id": p.id, "amount": float(p.amount)} for p in largest_unresolved]
-            
-    assistant = FinancialAssistant()
-    answer = assistant.answer_query(query.query, context)
-    return {"answer": answer}
+def ask_finance_copilot(query: QAQuery, session: Session = Depends(get_session)):
+    from app.copilot import FinanceCopilot
+    copilot = FinanceCopilot(session)
+    result = copilot.answer_query(query.query)
+    return result
 
 @app.post("/api/upload")
 async def upload_csv(file: UploadFile = File(...), data_type: str = Form(...), session: Session = Depends(get_session)):

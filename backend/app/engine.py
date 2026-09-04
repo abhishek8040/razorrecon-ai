@@ -188,12 +188,14 @@ class ReconciliationEngine:
         is_ambiguous = False
         selected_candidate = None
         
-        if best_score >= 0.5:
-            ties = [x for x in scored if x[0] == best_score]
-            if len(ties) > 1:
-                is_ambiguous = True
+        MATCH_THRESHOLD = 0.5
+        MIN_SCORE_MARGIN = 0.05
+        
+        if best_score >= MATCH_THRESHOLD:
+            if (best_score - second_best_score) >= MIN_SCORE_MARGIN:
+                selected_candidate = scored[0][1]
             else:
-                selected_candidate = ties[0][1]
+                is_ambiguous = True
                 
         return {
             "selected_candidate_id": selected_candidate.id if selected_candidate else None,

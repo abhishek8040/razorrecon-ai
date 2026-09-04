@@ -24,6 +24,17 @@ This report confirms the submission readiness for the Razorpay Buildathon 2026.
     *   *How it works:* Generates pseudo-random anomalies, references, and amounts that are stable for a given random seed. Removed all instances of non-deterministic `uuid.uuid4()` for dataset generation to ensure identical outputs on repeated runs.
     *   *Test:* `tests/test_generation.py::test_deterministic_generation`
 
+
+*   **Tool-Grounded Finance Copilot**
+    *   *Implementation:* `backend/app/copilot.py`
+    *   *How it works:* Replaces static RAG with deterministic, read-only backend tools. The LLM loops up to 5 times requesting verified data before explaining the financial state. It emits citations so the UI displays what tools were used.
+    *   *Test:* `tests/test_copilot.py`
+
+*   **Safe Bank Candidate Ambiguity Margin**
+    *   *Implementation:* `backend/app/engine.py::_find_best_bank_match`
+    *   *How it works:* Enforces a strict score margin (e.g. 0.05) between the best and second-best candidate. If two candidates are nearly equally plausible, it escalates to AMBIGUOUS rather than guessing.
+    *   *Test:* `tests/test_bank_matching.py`
+
 ## 2. ARCHITECTURAL GUARANTEES
 
 *   **Deterministic Matching:** The core 3-way reconciliation engine applies hard mathematical and temporal rules. The AI never acts as the primary matcher.
