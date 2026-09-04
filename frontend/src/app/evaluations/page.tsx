@@ -88,7 +88,7 @@ export default function EvaluationsPage() {
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
                 <EvalStat label="Recall" value={`${(run.recall * 100).toFixed(1)}%`} />
-                <EvalStat label="Accuracy" value={`${(run.accuracy * 100).toFixed(1)}%`} />
+                <EvalStat label="Recon. Precision" value={`${(run.precision * 100).toFixed(1)}%`} />
                 <EvalStat label="Unresolved Rate" value={`${((run.unresolved_records / run.total_records) * 100).toFixed(1)}%`} />
                 <EvalStat label="Auto-Res. Precision" value={run.auto_resolution_precision !== null ? `${(run.auto_resolution_precision * 100).toFixed(1)}%` : "—"} />
               </div>

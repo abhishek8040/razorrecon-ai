@@ -54,10 +54,22 @@ def run_reconciliation(merchant_id: str = None, session: Session = Depends(get_s
 
 @app.get("/api/metrics")
 def get_metrics(session: Session = Depends(get_session)):
-    total_payments = session.exec(select(func.count(Payment.id))).one()
-    total_value = session.exec(select(func.sum(Payment.amount))).one() or 0
     latest_run = session.exec(select(ReconciliationRun).order_by(ReconciliationRun.created_at.desc()).limit(1)).first()
     latest_eval = session.exec(select(EvaluationRun).order_by(EvaluationRun.created_at.desc()).limit(1)).first()
+    
+    if latest_run:
+        # Scope total_payments and total_value to the latest run's payments
+        run_results = session.exec(select(ReconciliationResult).where(ReconciliationResult.run_id == latest_run.id)).all()
+        payment_ids = [r.source_record_id for r in run_results]
+        if payment_ids:
+            total_payments = len(payment_ids)
+            total_value = session.exec(select(func.sum(Payment.amount)).where(Payment.id.in_(payment_ids))).one() or 0
+        else:
+            total_payments = 0
+            total_value = 0
+    else:
+        total_payments = session.exec(select(func.count(Payment.id))).one()
+        total_value = session.exec(select(func.sum(Payment.amount))).one() or 0
     
     metrics = {
         "total_payments": total_payments,
@@ -96,10 +108,14 @@ def get_metrics(session: Session = Depends(get_session)):
 
 @app.get("/api/transactions")
 def get_transactions(limit: int = 100, offset: int = 0, session: Session = Depends(get_session)):
+    latest_run = session.exec(select(ReconciliationRun).order_by(ReconciliationRun.created_at.desc()).limit(1)).first()
     payments = session.exec(select(Payment).offset(offset).limit(limit)).all()
     results = []
     for p in payments:
-        res = session.exec(select(ReconciliationResult).where(ReconciliationResult.source_record_id == p.id)).first()
+        if latest_run:
+            res = session.exec(select(ReconciliationResult).where(ReconciliationResult.source_record_id == p.id, ReconciliationResult.run_id == latest_run.id)).first()
+        else:
+            res = session.exec(select(ReconciliationResult).where(ReconciliationResult.source_record_id == p.id)).first()
         results.append({
             "payment": p,
             "reconciliation": res
@@ -108,7 +124,11 @@ def get_transactions(limit: int = 100, offset: int = 0, session: Session = Depen
 
 @app.get("/api/exceptions")
 def get_exceptions(session: Session = Depends(get_session)):
-    exceptions = session.exec(select(ExceptionRecord).order_by(ExceptionRecord.created_at.desc())).all()
+    latest_run = session.exec(select(ReconciliationRun).order_by(ReconciliationRun.created_at.desc()).limit(1)).first()
+    if latest_run:
+        exceptions = session.exec(select(ExceptionRecord).where(ExceptionRecord.run_id == latest_run.id).order_by(ExceptionRecord.created_at.desc())).all()
+    else:
+        exceptions = session.exec(select(ExceptionRecord).order_by(ExceptionRecord.created_at.desc())).all()
     return exceptions
 
 @app.post("/api/exceptions/{exception_id}/investigate")

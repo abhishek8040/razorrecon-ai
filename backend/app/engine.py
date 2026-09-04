@@ -40,18 +40,9 @@ class ReconciliationEngine:
             settlements = self.session.exec(select(Settlement)).all()
             bank_txs = self.session.exec(select(BankTransaction)).all()
             
-        # Idempotency: DELETE old results for the same payments
-        payment_ids = [p.id for p in payments]
-        if payment_ids:
-            old_results = self.session.exec(select(ReconciliationResult).where(ReconciliationResult.source_record_id.in_(payment_ids))).all()
-            old_result_ids = [r.id for r in old_results]
-            if old_result_ids:
-                old_exceptions = self.session.exec(select(ExceptionRecord).where(ExceptionRecord.result_id.in_(old_result_ids))).all()
-                for exc in old_exceptions:
-                    self.session.delete(exc)
-                for res in old_results:
-                    self.session.delete(res)
-            self.session.commit()
+        # Idempotency: We no longer delete old results.
+        # Run scoping (querying by latest run_id) prevents duplicates in the UI.
+        pass
         
         # Dictionaries for quick lookup
         unmatched_payments = {p.id: p for p in payments}
@@ -90,13 +81,10 @@ class ReconciliationEngine:
                 if s.reference == p.id and s.settlement_amount == p.amount:
                     time_diff = abs((s.settlement_time - p.payment_time).total_seconds())
                     
-                    # 3-way match
-                    b_match = None
-                    for b_id, b in unmatched_bank_txs.items():
-                        if b_id in matched_bank_tx_ids: continue
-                        if b.bank_reference == s.reference and b.amount == s.settlement_amount:
-                            b_match = b
-                            break
+                    # 3-way match using unified logic
+                    available_banks = {k: v for k, v in unmatched_bank_txs.items() if k not in matched_bank_tx_ids}
+                    match_res = self._find_best_bank_match(p, s, available_banks)
+                    b_match = match_res.get("selected_candidate") if not match_res.get("is_ambiguous") else None
                             
                     if b_match:
                         explanation = "Exact 3-way match on reference and amount."
@@ -160,7 +148,64 @@ class ReconciliationEngine:
         for bid in matched_bank_tx_ids:
             unmatched_bank_txs.pop(bid, None)
 
-    def _score_bank_candidates(self, p, s, bank_candidates):
+
+    def _find_best_bank_match(self, p, s, bank_txs):
+        from decimal import Decimal
+        candidates = [b for b in bank_txs.values() if b.merchant_id == p.merchant_id]
+        if not candidates:
+            return {"selected_candidate_id": None, "candidate_count": 0, "is_ambiguous": False, "evidence": {}}
+            
+        scored = []
+        for b in candidates:
+            score = 0.0
+            evidence = {
+                "reference_match": False,
+                "amount_match": False,
+                "merchant_match": True,
+                "time_difference_seconds": abs((b.transaction_time - s.settlement_time).total_seconds())
+            }
+            
+            if b.bank_reference in [p.id, s.reference, s.id]:
+                score += 0.4
+                evidence["reference_match"] = True
+                
+            if b.amount == s.settlement_amount:
+                score += 0.4
+                evidence["amount_match"] = True
+            elif s.settlement_amount > 0 and abs(b.amount - s.settlement_amount) / s.settlement_amount <= Decimal("0.05"):
+                score += 0.2
+                
+            if evidence["time_difference_seconds"] <= 86400 * 3:
+                score += 0.1
+                
+            scored.append((score, b, evidence))
+            
+        scored.sort(key=lambda x: x[0], reverse=True)
+        
+        best_score = scored[0][0]
+        second_best_score = scored[1][0] if len(scored) > 1 else 0.0
+        
+        is_ambiguous = False
+        selected_candidate = None
+        
+        if best_score >= 0.5:
+            ties = [x for x in scored if x[0] == best_score]
+            if len(ties) > 1:
+                is_ambiguous = True
+            else:
+                selected_candidate = ties[0][1]
+                
+        return {
+            "selected_candidate_id": selected_candidate.id if selected_candidate else None,
+            "selected_candidate": selected_candidate,
+            "candidate_count": len(scored),
+            "candidate_score": best_score,
+            "second_best_score": second_best_score,
+            "is_ambiguous": is_ambiguous,
+            "evidence": scored[0][2] if scored else {}
+        }
+
+    def _score_bank_candidates_old(self, p, s, bank_candidates):
         from decimal import Decimal
         scored = []
         for b in bank_candidates:
@@ -209,21 +254,10 @@ class ReconciliationEngine:
             explanation = ""
             
             for s in candidates:
-                # 1. Deterministic bank candidate scoring
-                plausible_bank_txs = [b for b in unmatched_bank_txs.values() if b.merchant_id == p.merchant_id]
-                scored_banks = self._score_bank_candidates(p, s, plausible_bank_txs)
-                
-                b_match = None
-                ambiguous_bank = False
-                
-                if scored_banks:
-                    best_score = scored_banks[0][0]
-                    if best_score >= 0.5:
-                        ties = [b for score, b in scored_banks if score == best_score]
-                        if len(ties) > 1:
-                            ambiguous_bank = True
-                        else:
-                            b_match = ties[0]
+                # 1. Deterministic bank candidate scoring (Unified)
+                match_res = self._find_best_bank_match(p, s, unmatched_bank_txs)
+                b_match = match_res.get("selected_candidate")
+                ambiguous_bank = match_res.get("is_ambiguous")
 
                 passed, failed, blocking, decision = PolicyEngine.evaluate_match(p, s, b_match)
                 

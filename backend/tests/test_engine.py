@@ -67,9 +67,12 @@ def test_engine_idempotency(session: Session):
     engine2.run()
     
     results = session.exec(select(ReconciliationResult).where(ReconciliationResult.source_record_id == p_id)).all()
-    # Should only have 1 result despite two runs
-    assert len(results) == 1
-    assert results[0].run_id == "run_4"
+    # Now that we don't delete, there are 2 results historically
+    assert len(results) == 2
+    
+    # But only 1 result for the latest run
+    latest_run_results = [r for r in results if r.run_id == "run_4"]
+    assert len(latest_run_results) == 1
     
 def test_engine_missing_settlement(session: Session):
     p_id = "pay_4"

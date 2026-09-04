@@ -17,7 +17,8 @@ def generate_sample_batch(batch_number, num_records=100):
     start_date = datetime(2026, 2, 1) + timedelta(days=batch_number*10)
     
     for i in range(num_records):
-        payment_id = f"pay_{uuid.uuid4().hex[:12]}"
+        idx = f"{i:04d}"
+        payment_id = f"pay_batch{batch_number}_{idx}"
         amount = Decimal(str(round(random.uniform(10.0, 5000.0), 2)))
         payment_time = start_date + timedelta(days=random.randint(0, 5), hours=random.randint(0, 23), minutes=random.randint(0, 59))
         
@@ -36,8 +37,8 @@ def generate_sample_batch(batch_number, num_records=100):
         
         anomaly = random.random()
         
-        settlement_id = f"setl_{uuid.uuid4().hex[:12]}"
-        bank_txn_id = f"btxn_{uuid.uuid4().hex[:12]}"
+        settlement_id = f"setl_batch{batch_number}_{idx}"
+        bank_txn_id = f"btxn_batch{batch_number}_{idx}"
         
         setl_amount = amount
         bank_amount = amount
