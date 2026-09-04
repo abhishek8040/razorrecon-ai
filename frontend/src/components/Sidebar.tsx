@@ -1,10 +1,11 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, FileSpreadsheet, AlertCircle, FileText, CheckCircle, Activity, MessageSquare, UploadCloud } from "lucide-react";
+import { LayoutDashboard, FileSpreadsheet, AlertCircle, FileText, CheckCircle, Activity, MessageSquare, UploadCloud, BookOpen } from "lucide-react";
 
 const navItems = [
   { name: "Dashboard", href: "/", icon: LayoutDashboard },
+  { name: "About", href: "/about", icon: BookOpen },
   { name: "Reconciliation", href: "/reconciliation", icon: FileSpreadsheet },
   { name: "Exceptions", href: "/exceptions", icon: AlertCircle },
   { name: "Transactions", href: "/transactions", icon: FileText },
