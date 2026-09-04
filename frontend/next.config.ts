@@ -6,3 +6,4 @@ const nextConfig: NextConfig = {
 
 export default nextConfig;
 // trigger build
+// trigger build 2
