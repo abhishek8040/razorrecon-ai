@@ -327,7 +327,7 @@ def get_evaluations(session: Session = Depends(get_session)):
 @app.post("/api/evaluate/heldout")
 def evaluate_heldout(session: Session = Depends(get_session)):
     from sqlmodel import create_engine, Session as SQLSession, SQLModel
-    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     heldout_dir = os.path.join(project_root, "data", "heldout")
     
     try:

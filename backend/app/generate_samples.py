@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 
 def generate_sample_batch(batch_number, num_records=100):
-    output_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "sampledata")
+    output_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "sampledata")
     os.makedirs(output_dir, exist_ok=True)
     
     payments = []
