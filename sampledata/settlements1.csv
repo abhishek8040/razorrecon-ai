@@ -1,5 +1,0 @@
-id,external_id,merchant_id,settlement_amount,settlement_time,reference,status,metadata_json
-setl_1_2001,setl_1_2001,merch_batch1,1000.00,2026-09-05T10:00:00,pay_1_1001,processed,{}
-setl_1_2002,setl_1_2002,merch_batch1,1960.00,2026-09-05T10:15:00,pay_1_1002,processed,{"note":"2% fee deducted"}
-setl_1_2003,setl_1_2003,merch_batch1,3000.00,2026-09-05T10:30:00,pay_1_1003,processed,{}
-setl_1_2005,setl_1_2005,merch_batch1,5000.00,2026-09-05T11:00:00,pay_1_1005,processed,{}

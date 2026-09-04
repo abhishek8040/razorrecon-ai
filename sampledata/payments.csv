@@ -1,6 +1,0 @@
-id,external_id,merchant_id,amount,currency,payment_time,customer_reference,order_reference,status,metadata_json
-pay_custom_1001,pay_custom_1001,merch_custom,5000.00,INR,2026-09-01T10:00:00,cust_991,order_5551,captured,{}
-pay_custom_1002,pay_custom_1002,merch_custom,2500.00,INR,2026-09-01T11:30:00,cust_992,order_5552,captured,{}
-pay_custom_1003,pay_custom_1003,merch_custom,10000.00,INR,2026-09-01T14:45:00,cust_993,order_5553,captured,{}
-pay_custom_1004,pay_custom_1004,merch_custom,750.50,INR,2026-09-02T09:15:00,cust_994,order_5554,captured,{}
-pay_custom_1005,pay_custom_1005,merch_custom,12000.00,INR,2026-09-02T16:20:00,cust_995,order_5555,captured,{}

@@ -1,4 +1,0 @@
-id,external_id,merchant_id,amount,currency,payment_time,customer_reference,order_reference,status,metadata_json
-pay_2_1001,pay_2_1001,merch_batch2,150.00,INR,2026-09-06T10:00:00,cust_2_1,order_2_1,captured,{}
-pay_2_1002,pay_2_1002,merch_batch2,250.00,INR,2026-09-06T11:00:00,cust_2_2,order_2_2,captured,{}
-pay_2_1003,pay_2_1003,merch_batch2,350.00,INR,2026-09-06T12:00:00,cust_2_3,order_2_3,captured,{}
