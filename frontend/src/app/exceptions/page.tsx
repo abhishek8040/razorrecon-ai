@@ -91,9 +91,9 @@ export default function ExceptionsPage() {
         </div>
       </div>
 
-      <div className="flex-1 flex gap-4 overflow-hidden min-h-0">
+      <div className="flex-1 flex flex-col lg:flex-row gap-4 overflow-hidden min-h-0">
         {/* List */}
-        <div className="w-[340px] flex-shrink-0 bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col overflow-hidden">
+        <div className="w-full lg:w-[340px] flex-shrink-0 bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col overflow-hidden min-h-[400px]">
           <div className="px-4 py-3 border-b border-slate-100 bg-slate-50 text-sm font-semibold text-slate-600">
             {filtered.length} of {exceptions.length} Exceptions
           </div>

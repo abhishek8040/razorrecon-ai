@@ -39,9 +39,9 @@ export default function TransactionsPage() {
         <p className="text-slate-500 text-sm">View payments and their reconciliation lineage.</p>
       </div>
 
-      <div className="flex-1 flex gap-4 overflow-hidden min-h-0">
+      <div className="flex-1 flex flex-col lg:flex-row gap-4 overflow-hidden min-h-0">
         {/* Table */}
-        <div className="flex-1 bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col overflow-hidden">
+        <div className="flex-1 bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col overflow-hidden min-h-[400px]">
           <div className="overflow-auto flex-1">
             <table className="min-w-full divide-y divide-slate-200">
               <thead className="bg-slate-50 sticky top-0">
@@ -105,7 +105,7 @@ export default function TransactionsPage() {
 
         {/* Detail Panel */}
         {selected && (
-          <div className="w-[380px] flex-shrink-0 bg-white rounded-xl border border-slate-200 shadow-sm overflow-y-auto">
+          <div className="w-full lg:w-[380px] flex-shrink-0 bg-white rounded-xl border border-slate-200 shadow-sm overflow-y-auto min-h-[400px]">
             <div className="p-5 space-y-5">
               <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider">Transaction Lineage</h3>
 
